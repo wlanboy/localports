@@ -21,4 +21,6 @@ Auswahl in den Prompts: `1,3,5-7`, Namen, `*` für alle. Im Namespace-Prompt fil
 - Ports unter 1024 werden ohne root auf `port+8000` gelegt (80 → 8080, 443 → 8443).
 - UDP-Ports, `ExternalName`-Services und Services ohne Selector werden übersprungen, weil `port-forward` sie nicht unterstützt.
 
+Nach dem Start listet das Tool die Adressen auf, HTTP- und HTTPS-Ports als klickbare URL (Strg+Klick im Terminal). Das Protokoll wird aus `appProtocol`, dem Port-Namen (`http-…`, `https-…`, `grpc-…`) und bekannten Ports wie 443 abgeleitet. Nicht-HTTP-Ports wie DNS oder gRPC erscheinen als `localhost:port`.
+
 Bricht ein Forward ab (z. B. bei einem Pod-Neustart), wird er automatisch neu gestartet. Strg+C beendet alle.
