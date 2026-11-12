@@ -1,12 +1,12 @@
 [project]
 name = "localports"
 version = "0.1.0"
-description = "Add your description here"
+description = "Local port forwaring for kubernetes services"
 readme = "README.md"
 authors = [
     { name = "wlanboy", email = "wlanboy@github.com" }
 ]
-requires-python = ">=3.15"
+requires-python = ">=3.11"
 dependencies = []
 
 [project.scripts]
