@@ -10,10 +10,20 @@ PRIVILEGED_OFFSET = 8000
 
 HTTPS_PREFIXES = {"https", "tls"}
 HTTP_PREFIXES = {"http", "http2", "h2c", "web", "metrics", "status"}
-NON_HTTP_PREFIXES = {"grpc", "tcp", "udp", "dns", "mongo", "redis", "mysql", "postgres",
-                     "postgresql", "kafka", "amqp", "mqtt", "ldap", "smtp", "ssh", "sctp"}
+NON_HTTP_PREFIXES = {"grpc", "tcp", "udp", "dns", "sctp", "ssh", "smtp", "ldap",
+                     "postgres", "postgresql", "mysql", "mariadb", "mssql", "oracle",
+                     "mongo", "mongodb", "redis", "cassandra",
+                     "kafka", "zookeeper", "zk", "amqp", "amqps", "mqtt", "mqtts",
+                     "stomp", "nats"}
 HTTPS_PORTS = {443, 6443, 8443, 9443}
-NON_HTTP_PORTS = {22, 25, 53, 389, 636, 1883, 2181, 3306, 5432, 5672, 6379, 9092, 27017}
+NON_HTTP_PORTS = {
+    22, 25, 53, 389, 636,                     # ssh, smtp, dns, ldap
+    1433, 1521, 3306, 5432, 9042, 26257,      # mssql, oracle, mysql, postgres, cassandra, cockroach
+    6379, 11211, 27017,                       # redis, memcached, mongodb
+    5671, 5672, 1883, 8883, 61613, 61616,     # amqp(s), mqtt(s), stomp, activemq
+    4222, 6222,                               # nats
+    9092, 9093, 9094, 2181, 2888, 3888,       # kafka, zookeeper
+}
 
 
 @dataclass
