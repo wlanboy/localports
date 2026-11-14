@@ -72,6 +72,9 @@ def ask_forwards(forwards: list[Forward]) -> list[Forward]:
         except ValueError as err:
             print(f"Unbekannte Auswahl: {err}")
             continue
+        if not chosen:
+            print("Leere Auswahl, bitte erneut wählen.")
+            continue
         return [forwards[int(k) - 1] for k in chosen]
 
 
@@ -94,16 +97,26 @@ def print_table(forwards: list[Forward], skipped: list[Skipped]) -> None:
 def _print_rows(rows: list[tuple[str, ...]]) -> None:
     widths = [max(len(r[c]) for r in rows) for c in range(len(rows[0]))]
     for r in rows:
-        print("  " + "  ".join(cell.ljust(w) for cell, w in zip(r, widths)).rstrip())
+        print("  " + "  ".join(cell.ljust(w) for cell, w in zip(r, widths, strict=True)).rstrip())
 
 
-def _host(address: str) -> str:
-    return "localhost" if address in ("127.0.0.1", "0.0.0.0", "localhost") else address
+def url_host(address: str) -> str:
+    """Host für die angezeigten Adressen, abgeleitet aus `--address`.
+
+    Bei einer Liste zählt der erste Eintrag. Wildcard- und Loopback-Adressen
+    werden als `localhost` gezeigt, andere IPv6-Adressen in eckigen Klammern.
+    """
+    host = address.split(",", 1)[0].strip()
+    if host in ("127.0.0.1", "0.0.0.0", "::", "localhost", ""):
+        return "localhost"
+    if ":" in host:
+        return f"[{host}]"
+    return host
 
 
 def print_urls(forwards: list[Forward], address: str) -> None:
     """Listet die erreichbaren Adressen, http(s) als URL zum Strg+Klick im Terminal."""
-    host = _host(address)
+    host = url_host(address)
     rows: list[tuple[str, ...]] = []
     for f in forwards:
         for j, p in enumerate(f.ports):

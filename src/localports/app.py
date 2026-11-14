@@ -13,7 +13,8 @@ from .ports import assign_local_ports, plan
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         prog="localports",
-        description="Leitet Services ausgewählter Namespaces per port-forward auf localhost weiter.")
+        description="Leitet Services ausgewählter Namespaces per port-forward "
+                    "auf localhost weiter.")
     parser.add_argument("-n", "--namespace", action="append",
                         help="Namespace ohne Rückfrage verwenden (mehrfach möglich)")
     parser.add_argument("--cli", choices=list(kube.DEFAULT_CLIS),
@@ -26,8 +27,16 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 
 def main(argv: list[str] | None = None) -> None:
-    args = parse_args(argv)
+    try:
+        _run(parse_args(argv))
+    except KeyboardInterrupt:
+        # Strg+C in einem Prompt oder während oc/kubectl läuft. Im Supervisor
+        # fängt ein eigener Signal-Handler SIGINT ab und räumt auf.
+        print("\nAbgebrochen.", file=sys.stderr)
+        sys.exit(130)
 
+
+def _run(args: argparse.Namespace) -> None:
     cli = kube.detect_cli(args.cli)
     print(f"CLI: {cli}   Kontext: {kube.current_context(cli)}")
 

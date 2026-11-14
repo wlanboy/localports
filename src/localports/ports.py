@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 import socket
 from dataclasses import dataclass, field
 
@@ -73,7 +72,8 @@ def port_free(port: int, address: str) -> bool:
 
     `address` ist wie bei `port-forward --address` eine kommagetrennte Liste,
     `localhost` steht für 127.0.0.1 und ::1. Nicht auflösbare Einträge werden
-    übersprungen, den Fehler meldet dann `port-forward` selbst.
+    übersprungen, den Fehler meldet dann `port-forward` selbst. Fehlt die
+    Berechtigung (privilegierter Port), wird PermissionError weitergereicht.
     """
     for host in address.split(","):
         try:
@@ -85,16 +85,31 @@ def port_free(port: int, address: str) -> bool:
             with socket.socket(family, type_, proto) as s:
                 try:
                     s.bind(sockaddr)
+                except PermissionError:
+                    raise
                 except OSError:
                     return False
     return True
 
 
 def pick_local_port(wanted: int, taken: set[int], address: str) -> int:
+    """Nimmt den gewünschten Port oder den nächsten freien.
+
+    Ob ein Port unter 1024 erlaubt ist, entscheidet ein Bind-Versuch und nicht
+    die UID: Unter Linux kann ip_unprivileged_port_start gesenkt sein, unter
+    Windows gibt es keine UID. Erst bei PermissionError wird PRIVILEGED_OFFSET
+    addiert.
+    """
     port = wanted
-    if port < 1024 and os.geteuid() != 0:
-        port += PRIVILEGED_OFFSET
-    while port in taken or not port_free(port, address):
+    while True:
+        if port not in taken:
+            try:
+                if port_free(port, address):
+                    break
+            except PermissionError:
+                if port < 1024:
+                    port += PRIVILEGED_OFFSET
+                    continue
         port += 1
         if port > 65535:
             port = 10000

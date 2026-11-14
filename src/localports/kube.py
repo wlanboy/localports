@@ -9,6 +9,10 @@ import sys
 
 DEFAULT_CLIS = ("oc", "kubectl")
 
+# Obergrenze für einzelne oc/kubectl-Aufrufe (nicht für port-forward). Fängt
+# auch Hänger ab, die --request-timeout nicht erfasst, etwa ein Login-Plugin.
+TIMEOUT = 20
+
 
 def detect_cli(preferred: str | None) -> str:
     candidates = [preferred] if preferred else list(DEFAULT_CLIS)
@@ -19,7 +23,12 @@ def detect_cli(preferred: str | None) -> str:
 
 
 def run(cli: str, *args: str) -> str:
-    res = subprocess.run([cli, *args], capture_output=True, text=True)
+    cmd = [cli, "--request-timeout=10s", *args]
+    try:
+        res = subprocess.run(cmd, capture_output=True, text=True, timeout=TIMEOUT)
+    except subprocess.TimeoutExpired:
+        raise RuntimeError(f"{cli} {' '.join(args)}: keine Antwort nach {TIMEOUT}s "
+                           "(Cluster erreichbar, Login gültig?)") from None
     if res.returncode != 0:
         raise RuntimeError(res.stderr.strip() or f"{cli} {' '.join(args)} fehlgeschlagen")
     return res.stdout
