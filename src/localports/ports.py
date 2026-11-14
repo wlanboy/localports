@@ -28,10 +28,10 @@ NON_HTTP_PORTS = {
 
 @dataclass
 class PortMap:
-    local: int
     remote: int
     name: str = ""
     scheme: str | None = None  # "http", "https" oder None für Nicht-HTTP
+    local: int = 0             # wird erst nach der Auswahl vergeben
 
 
 @dataclass
@@ -68,20 +68,33 @@ def guess_scheme(port: int, name: str, app_protocol: str) -> str | None:
 Skipped = tuple[str, str, str]
 
 
-def port_free(port: int) -> bool:
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+def port_free(port: int, address: str) -> bool:
+    """Prüft, ob sich der Port auf allen Adressen binden lässt.
+
+    `address` ist wie bei `port-forward --address` eine kommagetrennte Liste,
+    `localhost` steht für 127.0.0.1 und ::1. Nicht auflösbare Einträge werden
+    übersprungen, den Fehler meldet dann `port-forward` selbst.
+    """
+    for host in address.split(","):
         try:
-            s.bind(("127.0.0.1", port))
-            return True
-        except OSError:
-            return False
+            infos = socket.getaddrinfo(host.strip(), port, type=socket.SOCK_STREAM,
+                                       flags=socket.AI_PASSIVE)
+        except socket.gaierror:
+            continue
+        for family, type_, proto, _, sockaddr in infos:
+            with socket.socket(family, type_, proto) as s:
+                try:
+                    s.bind(sockaddr)
+                except OSError:
+                    return False
+    return True
 
 
-def pick_local_port(wanted: int, taken: set[int]) -> int:
+def pick_local_port(wanted: int, taken: set[int], address: str) -> int:
     port = wanted
     if port < 1024 and os.geteuid() != 0:
         port += PRIVILEGED_OFFSET
-    while port in taken or not port_free(port):
+    while port in taken or not port_free(port, address):
         port += 1
         if port > 65535:
             port = 10000
@@ -90,9 +103,9 @@ def pick_local_port(wanted: int, taken: set[int]) -> int:
 
 
 def plan(services: dict[str, list[dict]]) -> tuple[list[Forward], list[Skipped]]:
+    """Ermittelt die weiterleitbaren Service-Ports, noch ohne lokale Ports."""
     forwards: list[Forward] = []
     skipped: list[Skipped] = []
-    taken: set[int] = set()
     for ns, items in services.items():
         for svc in items:
             name = svc["metadata"]["name"]
@@ -108,10 +121,18 @@ def plan(services: dict[str, list[dict]]) -> tuple[list[Forward], list[Skipped]]
                 if p.get("protocol", "TCP") != "TCP":
                     skipped.append((ns, f"{name}:{p['port']}", p.get("protocol", "?")))
                     continue
-                local = pick_local_port(p["port"], taken)
                 name_ = p.get("name", "")
                 scheme = guess_scheme(p["port"], name_, p.get("appProtocol", ""))
-                fwd.ports.append(PortMap(local, p["port"], name_, scheme))
+                fwd.ports.append(PortMap(p["port"], name_, scheme))
             if fwd.ports:
                 forwards.append(fwd)
     return forwards, skipped
+
+
+def assign_local_ports(forwards: list[Forward], address: str) -> None:
+    """Vergibt die lokalen Ports. Erst nach der Auswahl aufrufen, damit nicht
+    gewählte Services keine Ports blockieren."""
+    taken: set[int] = set()
+    for f in forwards:
+        for p in f.ports:
+            p.local = pick_local_port(p.remote, taken, address)

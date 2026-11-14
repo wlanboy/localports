@@ -76,13 +76,13 @@ def ask_forwards(forwards: list[Forward]) -> list[Forward]:
 
 
 def print_table(forwards: list[Forward], skipped: list[Skipped]) -> None:
-    rows = [("#", "NAMESPACE", "SERVICE", "PORT", "LOKAL")]
+    rows = [("#", "NAMESPACE", "SERVICE", "PORT")]
     for i, f in enumerate(forwards, 1):
         for j, p in enumerate(f.ports):
             port = f"{p.remote}" + (f" ({p.name})" if p.name else "")
             first = j == 0
             rows.append((str(i) if first else "", f.namespace if first else "",
-                         f.service if first else "", port, f"localhost:{p.local}"))
+                         f.service if first else "", port))
     print()
     _print_rows(rows)
     if skipped:

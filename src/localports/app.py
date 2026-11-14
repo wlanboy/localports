@@ -7,7 +7,7 @@ import sys
 
 from . import kube, prompts
 from .forwarding import Supervisor
-from .ports import plan
+from .ports import assign_local_ports, plan
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -47,6 +47,7 @@ def main(argv: list[str] | None = None) -> None:
 
     if not args.yes:
         forwards = prompts.ask_forwards(forwards)
+    assign_local_ports(forwards, args.address)
 
     prompts.print_urls(forwards, args.address)
     Supervisor(cli, args.address).run(forwards)
