@@ -1,7 +1,7 @@
 [project]
 name = "localports"
 version = "0.1.0"
-description = "Local port forwaring for kubernetes services"
+description = "Local port forwarding for kubernetes services"
 readme = "README.md"
 authors = [
     { name = "wlanboy", email = "wlanboy@github.com" }
@@ -19,4 +19,12 @@ build-backend = "uv_build"
 [dependency-groups]
 dev = [
     "pyright>=1.1.414",
+    "pytest>=9.2.0",
+    "ruff>=0.17.5",
 ]
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP"]
