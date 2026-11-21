@@ -12,6 +12,10 @@ uv tool install .                   # global als `localports` installieren
 
 Optionen: `--cli oc|kubectl` (Standard: `oc`, sonst `kubectl`), `--address 0.0.0.0` (Standard `127.0.0.1`).
 
+`--address` nimmt wie `port-forward` eine kommagetrennte Liste aus IPs und `localhost`. Das Tool prüft die Adresse vor dem ersten Prompt und bricht mit einer Fehlermeldung ab, wenn sie keine IP ist oder auf diesem Rechner nicht existiert. Bei `localhost` reicht es, wenn sich eine der beiden Adressen 127.0.0.1 und ::1 binden lässt, etwa wenn IPv6 abgeschaltet ist.
+
+Mit `--cli oc` greift das Tool auf `oc projects` zurück, wenn der User keine Namespaces listen darf. Mit `--cli kubectl` gibt es diesen Rückgriff nicht.
+
 Auswahl in den Prompts: `1,3,5-7`, Namen, `*` für alle. Im Namespace-Prompt filtert `/text` die Liste.
 
 ## Port-Regeln
@@ -22,9 +26,11 @@ Auswahl in den Prompts: `1,3,5-7`, Namen, `*` für alle. Im Namespace-Prompt fil
 - Ports unter 1024 werden auf `port+8000` gelegt (80 → 8080, 443 → 8443), wenn sie sich nicht binden lassen. Ist `ip_unprivileged_port_start` gesenkt (z. B. für Podman), bleibt es beim Original-Port.
 - UDP-Ports, `ExternalName`-Services und Services ohne Selector werden übersprungen, weil `port-forward` sie nicht unterstützt.
 
-Nach dem Start listet das Tool die Adressen auf, HTTP- und HTTPS-Ports als klickbare URL (Strg+Klick im Terminal). Das Protokoll wird aus `appProtocol`, dem Port-Namen (`http-…`, `https-…`, `grpc-…`) und bekannten Ports wie 443 abgeleitet. Nicht-HTTP-Ports wie DNS oder gRPC erscheinen als `localhost:port`.
+Nach dem Start listet das Tool die Adressen auf, HTTP- und HTTPS-Ports als klickbare URL (Strg+Klick im Terminal). Das Protokoll wird aus `appProtocol` (auch `kubernetes.io/ws` und `kubernetes.io/wss`), dem Port-Namen (`http-…`, `https-…`, `ws-…`, `wss-…`, `grpc-…`) und bekannten Ports wie 443 abgeleitet. Nicht-HTTP-Ports wie DNS oder gRPC erscheinen als `localhost:port`.
 
 Bricht ein Forward ab (z. B. bei einem Pod-Neustart), wird er automatisch neu gestartet. Strg+C beendet alle, ebenso das Schließen des Terminals oder ein `kill`.
+
+Ausnahme: Hat ein anderer Prozess einen lokalen Port zwischen Prüfung und Start belegt, meldet `port-forward` „Unable to listen on port …“. Ein Neustart würde jedes Mal am selben Port scheitern. localports beendet dann alle Forwards und bricht mit einer Fehlermeldung ab (Exit-Code 1). Beim nächsten Start vergibt localports den Port neu.
 
 ## Timeouts
 

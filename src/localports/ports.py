@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+import errno
 import socket
 from dataclasses import dataclass, field
 
 PRIVILEGED_OFFSET = 8000
 
-HTTPS_PREFIXES = {"https", "tls"}
-HTTP_PREFIXES = {"http", "http2", "h2c", "web", "metrics", "status"}
+HTTPS_PREFIXES = {"https", "tls", "wss"}
+HTTP_PREFIXES = {"http", "http2", "h2c", "ws", "web", "metrics", "status"}
 NON_HTTP_PREFIXES = {"grpc", "tcp", "udp", "dns", "sctp", "ssh", "smtp", "ldap",
                      "postgres", "postgresql", "mysql", "mariadb", "mssql", "oracle",
                      "mongo", "mongodb", "redis", "cassandra",
@@ -44,9 +45,11 @@ def guess_scheme(port: int, name: str, app_protocol: str) -> str | None:
     """Rät das Protokoll aus appProtocol, Port-Name (Istio-Konvention) und Portnummer."""
     app = app_protocol.lower()
     if app:
-        if "https" in app or "tls" in app:
+        # z.B. "https", "kubernetes.io/h2c", "kubernetes.io/wss"
+        last = app.rsplit("/", 1)[-1]
+        if "https" in app or "tls" in app or last == "wss":
             return "https"
-        if "http" in app or "h2c" in app:
+        if "http" in app or "h2c" in app or last == "ws":
             return "http"
         return None
     prefix = name.lower().split("-", 1)[0]
@@ -67,29 +70,62 @@ def guess_scheme(port: int, name: str, app_protocol: str) -> str | None:
 Skipped = tuple[str, str, str]
 
 
-def port_free(port: int, address: str) -> bool:
-    """Prüft, ob sich der Port auf allen Adressen binden lässt.
+class AddressError(Exception):
+    """`--address` lässt sich nicht binden oder es gibt keinen freien Port mehr."""
 
-    `address` ist wie bei `port-forward --address` eine kommagetrennte Liste,
-    `localhost` steht für 127.0.0.1 und ::1. Nicht auflösbare Einträge werden
-    übersprungen, den Fehler meldet dann `port-forward` selbst. Fehlt die
-    Berechtigung (privilegierter Port), wird PermissionError weitergereicht.
+
+def _try_bind(ip: str, port: int) -> OSError | None:
+    """Bindet testweise. Liefert None bei Erfolg, sonst den Fehler.
+
+    PermissionError (privilegierter Port) wird geworfen, nicht zurückgegeben.
     """
-    for host in address.split(","):
-        try:
-            infos = socket.getaddrinfo(host.strip(), port, type=socket.SOCK_STREAM,
-                                       flags=socket.AI_PASSIVE)
-        except socket.gaierror:
-            continue
-        for family, type_, proto, _, sockaddr in infos:
-            with socket.socket(family, type_, proto) as s:
-                try:
-                    s.bind(sockaddr)
-                except PermissionError:
-                    raise
-                except OSError:
-                    return False
+    try:
+        family, type_, proto, _, sockaddr = socket.getaddrinfo(
+            ip, port, type=socket.SOCK_STREAM,
+            flags=socket.AI_PASSIVE | socket.AI_NUMERICHOST)[0]
+        with socket.socket(family, type_, proto) as s:
+            s.bind(sockaddr)
+    except PermissionError:
+        raise
+    except OSError as err:
+        return err
+    return None
+
+
+def _describe(ip: str, err: OSError) -> str:
+    if isinstance(err, socket.gaierror):
+        return (f"--address {ip!r} ist keine IP-Adresse "
+                "(port-forward akzeptiert nur IPs und localhost)")
+    return f"--address {ip} lässt sich nicht binden: {err.strerror or err}"
+
+
+def port_free(port: int, address: str) -> bool:
+    """Prüft, ob sich der Port so binden lässt, wie es `port-forward` tut.
+
+    `address` ist wie bei `port-forward --address` eine kommagetrennte Liste
+    aus IPs und `localhost`. `localhost` steht für 127.0.0.1 und ::1, eine der
+    beiden genügt (etwa wenn IPv6 abgeschaltet ist). Jede andere Adresse muss
+    sich binden lassen, sonst kommt AddressError. Fehlt die Berechtigung
+    (privilegierter Port), wird PermissionError weitergereicht.
+    """
+    for host in (h.strip() for h in address.split(",")):
+        targets = ["127.0.0.1", "::1"] if host == "localhost" else [host]
+        errors: list[tuple[str, OSError]] = []
+        for ip in targets:
+            err = _try_bind(ip, port)
+            if err is None:
+                continue
+            if err.errno == errno.EADDRINUSE:
+                return False
+            errors.append((ip, err))
+        if errors and (host != "localhost" or len(errors) == len(targets)):
+            raise AddressError(_describe(*errors[0]))
     return True
+
+
+def check_address(address: str) -> None:
+    """Prüft `--address` vorab mit einem beliebigen freien Port."""
+    port_free(0, address)
 
 
 def pick_local_port(wanted: int, taken: set[int], address: str) -> int:
@@ -98,14 +134,15 @@ def pick_local_port(wanted: int, taken: set[int], address: str) -> int:
     Ob ein Port unter 1024 erlaubt ist, entscheidet ein Bind-Versuch und nicht
     die UID: Unter Linux kann ip_unprivileged_port_start gesenkt sein, unter
     Windows gibt es keine UID. Erst bei PermissionError wird PRIVILEGED_OFFSET
-    addiert.
+    addiert. Nach einem vollen Durchlauf ohne freien Port kommt AddressError.
     """
     port = wanted
-    while True:
+    for _ in range(65536):
         if port not in taken:
             try:
                 if port_free(port, address):
-                    break
+                    taken.add(port)
+                    return port
             except PermissionError:
                 if port < 1024:
                     port += PRIVILEGED_OFFSET
@@ -113,8 +150,7 @@ def pick_local_port(wanted: int, taken: set[int], address: str) -> int:
         port += 1
         if port > 65535:
             port = 10000
-    taken.add(port)
-    return port
+    raise AddressError(f"kein freier lokaler Port für {wanted} gefunden")
 
 
 def plan(services: dict[str, list[dict]]) -> tuple[list[Forward], list[Skipped]]:

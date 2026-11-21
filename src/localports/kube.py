@@ -47,9 +47,10 @@ def list_namespaces(cli: str) -> list[str]:
         return sorted(out.split())
     except RuntimeError as err:
         # OpenShift: normale User dürfen oft keine Namespaces listen, aber Projekte.
-        if shutil.which("oc"):
+        # Nur mit oc, wer --cli kubectl wählt, bekommt kein oc untergeschoben.
+        if cli == "oc":
             try:
-                return sorted(run("oc", "projects", "-q").split())
+                return sorted(run(cli, "projects", "-q").split())
             except RuntimeError:
                 pass
         sys.exit(f"Namespaces konnten nicht geladen werden:\n{err}")

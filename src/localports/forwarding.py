@@ -13,6 +13,11 @@ from .ports import Forward
 MAX_BACKOFF = 30.0
 STABLE_AFTER = 30.0
 
+# So meldet port-forward, dass sich ein lokaler Port nicht binden lässt. Die
+# Ports wurden vorher als frei geprüft, also hat ihn inzwischen jemand belegt.
+# Ein Neustart scheitert jedes Mal gleich, darum bricht localports dann ab.
+BIND_FAILED = "unable to listen on"
+
 # Signale, bei denen die Forwards sauber beendet werden. Die Kinder laufen in
 # einer eigenen Session und bekommen SIGINT/SIGHUP vom Terminal nicht mit.
 STOP_SIGNALS = [s for s in (signal.SIGINT, getattr(signal, "SIGTERM", None),
@@ -57,6 +62,7 @@ class Supervisor:
         self.stop = threading.Event()
         self.procs: dict[int, subprocess.Popen] = {}
         self.lock = threading.Lock()
+        self.fatal: str | None = None
 
     def _cmd(self, f: Forward) -> list[str]:
         return [self.cli, "port-forward", "-n", f.namespace, f"svc/{f.service}",
@@ -82,8 +88,13 @@ class Supervisor:
             assert proc.stderr is not None
             for line in proc.stderr:
                 line = line.strip()
-                if line and not self.stop.is_set():
-                    print(f"[{label}] {line}", file=sys.stderr)
+                if not line or self.stop.is_set():
+                    continue
+                print(f"[{label}] {line}", file=sys.stderr)
+                if BIND_FAILED in line.lower():
+                    self._abort(f"{label}: lokaler Port lässt sich nicht binden, "
+                                "vermutlich inzwischen von einem anderen Prozess belegt. "
+                                "Bitte localports neu starten.")
             proc.wait()
             if self.stop.is_set():
                 return
@@ -93,6 +104,13 @@ class Supervisor:
             print(f"[{label}] beendet (Code {proc.returncode}), Neustart in {delay:.0f}s",
                   file=sys.stderr)
             self.stop.wait(delay)
+
+    def _abort(self, message: str) -> None:
+        """Beendet alle Forwards. Der Hauptthread meldet `message` und bricht ab."""
+        with self.lock:
+            if self.fatal is None:
+                self.fatal = message
+        self.stop.set()
 
     def run(self, forwards: list[Forward]) -> None:
         # Handler vor dem ersten Popen setzen, sonst bliebe ein früh startender
@@ -104,7 +122,7 @@ class Supervisor:
         try:
             for t in threads:
                 t.start()
-            while any(t.is_alive() for t in threads):
+            while not self.stop.is_set() and any(t.is_alive() for t in threads):
                 time.sleep(0.5)
         except _Interrupted as err:
             if err.signum != signal.SIGINT:
@@ -119,6 +137,8 @@ class Supervisor:
                 signal.signal(s, handler)
         if exit_code:
             raise SystemExit(exit_code)
+        if self.fatal:
+            raise SystemExit(f"Fehler: {self.fatal}")
 
     def shutdown(self) -> None:
         self.stop.set()

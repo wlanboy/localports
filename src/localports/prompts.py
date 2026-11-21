@@ -47,7 +47,10 @@ def ask_namespaces(namespaces: list[str]) -> list[str]:
         answer = _input()
         if answer.startswith("/"):
             term = answer[1:].lower()
-            shown = [n for n in namespaces if term in n.lower()] or namespaces
+            shown = [n for n in namespaces if term in n.lower()]
+            if not shown:
+                print(f"Kein Namespace enthält '{term}', zeige alle.")
+                shown = namespaces
             continue
         if not answer:
             continue
@@ -56,8 +59,10 @@ def ask_namespaces(namespaces: list[str]) -> list[str]:
         except ValueError as err:
             print(f"Unbekannte Auswahl: {err}")
             continue
-        if selected:
-            return selected
+        if not selected:
+            print("Leere Auswahl, bitte erneut wählen.")
+            continue
+        return selected
 
 
 def ask_forwards(forwards: list[Forward]) -> list[Forward]:

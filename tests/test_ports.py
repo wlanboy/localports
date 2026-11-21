@@ -1,3 +1,5 @@
+import errno
+import os
 import socket
 
 import pytest
@@ -10,6 +12,10 @@ from localports.ports import PortMap, guess_scheme, pick_local_port, plan
     # appProtocol hat Vorrang vor Name und Portnummer
     (8080, "grpc", "https", "https"),
     (443, "", "kubernetes.io/h2c", "http"),
+    (8080, "", "kubernetes.io/ws", "http"),
+    (8080, "", "kubernetes.io/wss", "https"),
+    (8080, "wss-events", "", "https"),
+    (8080, "ws", "", "http"),
     (80, "http", "grpc", None),
     # Port-Name nach Istio-Konvention
     (8080, "https-web", "", "https"),
@@ -137,25 +143,76 @@ def test_port_free_true_for_unused_port():
     assert ports.port_free(port, "127.0.0.1") is True
 
 
-def test_port_free_skips_unresolvable_hosts(monkeypatch):
-    def getaddrinfo(*_a, **_k):
-        raise socket.gaierror("unknown host")
+@pytest.mark.parametrize("address", ["myhost", "127.0.0.1,", "127.0.0.1,nope"])
+def test_port_free_rejects_non_ip(address):
+    with pytest.raises(ports.AddressError, match="keine IP-Adresse"):
+        ports.port_free(0, address)
 
-    monkeypatch.setattr(ports.socket, "getaddrinfo", getaddrinfo)
-    assert ports.port_free(8080, "nope, gone") is True
+
+def test_port_free_rejects_non_local_address():
+    # TEST-NET-1 (RFC 5737), auf keinem Rechner konfiguriert
+    with pytest.raises(ports.AddressError, match="lässt sich nicht binden"):
+        ports.port_free(0, "192.0.2.1")
+
+
+def _fake_try_bind(results):
+    """Liefert je IP das Ergebnis aus `results` (None = frei, sonst errno)."""
+    seen = []
+
+    def try_bind(ip, _port):
+        seen.append(ip)
+        code = results.get(ip)
+        return None if code is None else OSError(code, os.strerror(code))
+    return try_bind, seen
+
+
+def test_port_free_localhost_needs_only_one_address(monkeypatch):
+    # IPv6 abgeschaltet: ::1 lässt sich nicht binden, 127.0.0.1 reicht.
+    try_bind, seen = _fake_try_bind({"::1": errno.EADDRNOTAVAIL})
+    monkeypatch.setattr(ports, "_try_bind", try_bind)
+    assert ports.port_free(8080, "localhost") is True
+    assert seen == ["127.0.0.1", "::1"]
+
+
+def test_port_free_localhost_fails_when_both_fail(monkeypatch):
+    code = errno.EADDRNOTAVAIL
+    try_bind, _ = _fake_try_bind({"127.0.0.1": code, "::1": code})
+    monkeypatch.setattr(ports, "_try_bind", try_bind)
+    with pytest.raises(ports.AddressError):
+        ports.port_free(8080, "localhost")
+
+
+def test_port_free_busy_on_any_address(monkeypatch):
+    try_bind, _ = _fake_try_bind({"::1": errno.EADDRINUSE})
+    monkeypatch.setattr(ports, "_try_bind", try_bind)
+    assert ports.port_free(8080, "localhost") is False
 
 
 def test_port_free_checks_every_address_in_list(monkeypatch):
-    hosts = []
-    real_getaddrinfo = socket.getaddrinfo
+    try_bind, seen = _fake_try_bind({})
+    monkeypatch.setattr(ports, "_try_bind", try_bind)
+    assert ports.port_free(8080, "127.0.0.1, localhost") is True
+    assert seen == ["127.0.0.1", "127.0.0.1", "::1"]
 
-    def getaddrinfo(host, *args, **kwargs):
-        hosts.append(host)
-        return real_getaddrinfo("127.0.0.1", *args, **kwargs)
 
-    monkeypatch.setattr(ports.socket, "getaddrinfo", getaddrinfo)
-    ports.port_free(0, "127.0.0.1, localhost")
-    assert hosts == ["127.0.0.1", "localhost"]
+def test_try_bind_reports_missing_address_family(monkeypatch):
+    # IPv6 komplett aus dem Kernel entfernt: schon socket() schlägt fehl.
+    def no_socket(*_a):
+        raise OSError(errno.EAFNOSUPPORT, "Address family not supported")
+
+    monkeypatch.setattr(ports.socket, "socket", no_socket)
+    err = ports._try_bind("::1", 8080)
+    assert isinstance(err, OSError) and err.errno == errno.EAFNOSUPPORT
+
+
+def test_pick_local_port_gives_up_when_nothing_free(monkeypatch):
+    monkeypatch.setattr(ports, "port_free", lambda _p, _a: False)
+    with pytest.raises(ports.AddressError, match="kein freier lokaler Port"):
+        pick_local_port(8080, set(), "127.0.0.1")
+
+
+def test_check_address_accepts_loopback():
+    ports.check_address("127.0.0.1")
 
 
 def test_port_free_propagates_permission_error(monkeypatch):

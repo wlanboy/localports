@@ -98,20 +98,19 @@ def _run_failing_namespaces(projects: str | None):
 
 def test_list_namespaces_falls_back_to_oc_projects(monkeypatch):
     monkeypatch.setattr(kube, "run", _run_failing_namespaces("b a\n"))
-    monkeypatch.setattr(kube.shutil, "which", lambda name: name)
-    assert kube.list_namespaces("kubectl") == ["a", "b"]
+    assert kube.list_namespaces("oc") == ["a", "b"]
 
 
-def test_list_namespaces_exits_without_oc(monkeypatch):
+def test_list_namespaces_no_oc_fallback_for_kubectl(monkeypatch):
+    # oc wäre vorhanden und lieferte Projekte, wird bei kubectl aber nicht genutzt.
     monkeypatch.setattr(kube, "run", _run_failing_namespaces("a\n"))
-    monkeypatch.setattr(kube.shutil, "which", lambda _name: None)
+    monkeypatch.setattr(kube.shutil, "which", lambda name: name)
     with pytest.raises(SystemExit, match="forbidden"):
         kube.list_namespaces("kubectl")
 
 
 def test_list_namespaces_exits_when_projects_fail_too(monkeypatch):
     monkeypatch.setattr(kube, "run", _run_failing_namespaces(None))
-    monkeypatch.setattr(kube.shutil, "which", lambda name: name)
     # Gemeldet wird der ursprüngliche Fehler, nicht der von `oc projects`.
     with pytest.raises(SystemExit, match="forbidden"):
         kube.list_namespaces("oc")

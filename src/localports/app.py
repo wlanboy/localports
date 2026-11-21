@@ -7,7 +7,7 @@ import sys
 
 from . import kube, prompts
 from .forwarding import Supervisor
-from .ports import assign_local_ports, plan
+from .ports import AddressError, assign_local_ports, check_address, plan
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -34,9 +34,13 @@ def main(argv: list[str] | None = None) -> None:
         # fängt ein eigener Signal-Handler SIGINT ab und räumt auf.
         print("\nAbgebrochen.", file=sys.stderr)
         sys.exit(130)
+    except AddressError as err:
+        sys.exit(f"Fehler: {err}")
 
 
 def _run(args: argparse.Namespace) -> None:
+    # Vor allen Prompts, damit ein Tippfehler nicht erst am Ende auffällt.
+    check_address(args.address)
     cli = kube.detect_cli(args.cli)
     print(f"CLI: {cli}   Kontext: {kube.current_context(cli)}")
 

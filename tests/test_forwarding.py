@@ -2,6 +2,7 @@ import os
 import signal
 import subprocess
 import sys
+import threading
 from typing import Any, cast
 
 import pytest
@@ -184,6 +185,51 @@ def test_watch_terminates_proc_started_after_shutdown(monkeypatch):
 
     assert procs[0].signals == [signal.SIGTERM]
     assert sup.procs == {0: procs[0]}
+
+
+BIND_ERROR = ("Unable to listen on port 8080: Listeners failed to create with the "
+              "following errors: [unable to create listener: Error listen tcp4 "
+              "127.0.0.1:8080: bind: address already in use]\n")
+
+
+def test_watch_aborts_when_local_port_taken(monkeypatch, capsys):
+    sup = Supervisor("oc", "127.0.0.1")
+    cmds = _fake_popen(monkeypatch, lambda: FakeProc(lines=[BIND_ERROR]))
+    delays = _stop_after_waits(monkeypatch, sup, 99)
+
+    sup._watch(0, _forward())
+
+    assert len(cmds) == 1
+    assert delays == []
+    assert sup.stop.is_set()
+    assert sup.fatal is not None and "ns/web" in sup.fatal
+    assert "[ns/web] Unable to listen on port 8080" in capsys.readouterr().err
+
+
+def test_run_exits_with_error_when_port_taken(monkeypatch, capsys):
+    sup = Supervisor("oc", "127.0.0.1")
+    before = {s: signal.getsignal(s) for s in forwarding.STOP_SIGNALS}
+    running = FakeProc()
+    other_started = threading.Event()
+
+    def fake_watch(idx, _f):
+        if idx == 0:
+            # zweiter Forward läuft weiter, bis shutdown() ihn beendet
+            with sup.lock:
+                sup.procs[idx] = _as_popen(running)
+            other_started.set()
+            sup.stop.wait(5)
+        else:
+            other_started.wait(5)
+            sup._abort("ns/db: Port belegt")
+
+    monkeypatch.setattr(sup, "_watch", fake_watch)
+    with pytest.raises(SystemExit, match="Fehler: ns/db: Port belegt"):
+        sup.run([_forward(), _forward()])
+
+    assert running.signals == [signal.SIGTERM]
+    assert {s: signal.getsignal(s) for s in forwarding.STOP_SIGNALS} == before
+    assert "Alle Port-Forwards beendet" in capsys.readouterr().out
 
 
 def test_run_without_forwards_restores_handlers(capsys):

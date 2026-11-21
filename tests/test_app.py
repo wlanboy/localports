@@ -1,6 +1,7 @@
 import pytest
 
 from localports import app
+from localports.ports import AddressError
 
 
 def test_parse_args_defaults():
@@ -116,6 +117,22 @@ def test_run_exits_without_forwardable_services(env):
     env["services"]["ns1"] = []
 
     with pytest.raises(SystemExit, match="Keine weiterleitbaren Services"):
+        app.main(["-n", "ns1", "-y"])
+    assert env["runs"] == []
+
+
+def test_run_exits_on_bad_address_before_prompts(env, monkeypatch):
+    monkeypatch.setattr(app.kube, "detect_cli", _must_not_be_called)
+    with pytest.raises(SystemExit, match="Fehler: --address 'nope' ist keine IP-Adresse"):
+        app.main(["--address", "nope"])
+
+
+def test_run_exits_when_no_local_port_free(env, monkeypatch):
+    def no_port(_forwards, _address):
+        raise AddressError("kein freier lokaler Port für 80 gefunden")
+
+    monkeypatch.setattr(app, "assign_local_ports", no_port)
+    with pytest.raises(SystemExit, match="Fehler: kein freier lokaler Port"):
         app.main(["-n", "ns1", "-y"])
     assert env["runs"] == []
 

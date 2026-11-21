@@ -82,15 +82,18 @@ def test_ask_namespaces_filter_renumbers(monkeypatch, capsys):
     assert "2) prod-eu" in capsys.readouterr().out
 
 
-def test_ask_namespaces_filter_without_match_shows_all(monkeypatch):
+def test_ask_namespaces_filter_without_match_shows_all(monkeypatch, capsys):
     _answers(monkeypatch, "/xyz", "1")
     assert prompts.ask_namespaces(NAMESPACES) == ["dev"]
+    assert "Kein Namespace enthält 'xyz', zeige alle." in capsys.readouterr().out
 
 
 def test_ask_namespaces_repeats_on_empty_invalid_and_empty_selection(monkeypatch, capsys):
     _answers(monkeypatch, "", "staging", "3-1", "*")
     assert prompts.ask_namespaces(NAMESPACES) == NAMESPACES
-    assert "Unbekannte Auswahl: staging" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "Unbekannte Auswahl: staging" in out
+    assert "Leere Auswahl, bitte erneut wählen." in out
 
 
 def test_ask_forwards_enter_selects_all(monkeypatch):
