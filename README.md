@@ -48,6 +48,25 @@ Load Balancer oder Proxys vor dem API-Server haben oft eigene, kürzere Idle-Tim
 
 Endet `port-forward` aus einem dieser Gründe, startet localports den Forward neu: zuerst nach 1 s, bei wiederholtem Abbruch mit doppelter Wartezeit bis maximal 30 s. Lief ein Forward länger als 30 s stabil, beginnt die Wartezeit wieder bei 1 s.
 
+## Docker
+
+Das Image enthält `kubectl` aus `registry.k8s.io/kubectl`, aber kein `oc`. Die kubeconfig gehört nach `/kube/config`:
+
+```bash
+docker build --build-arg REVISION=$(git rev-parse HEAD) -t localports .
+docker run --rm -it --init --network host --read-only --tmpfs /tmp \
+  -v ~/.kube/config:/kube/config:ro localports -n app
+```
+
+- `--network host` ist nötig, weil die lokalen Ports erst zur Laufzeit feststehen und sich nicht vorab mit `-p` freigeben lassen. Das funktioniert nur unter Linux.
+- `-it` braucht das Tool für die Prompts. Ohne Terminal läuft es nur mit `-n` und `-y`.
+- `--init` sorgt dafür, dass `docker stop` den Prozess sofort beendet, auch während eines Prompts.
+- Der Container läuft als UID 1000. Die kubeconfig muss für diese UID lesbar sein.
+- Login-Plugins (`exec` in der kubeconfig, etwa OIDC oder Cloud-CLIs) fehlen im Image. Mit solchen Kontexten klappt die Anmeldung nur über ein Token in der kubeconfig.
+- Ports unter 1024 landen auf `port+8000`, weil der Prozess nicht als root läuft. Mit `--network host` gilt `ip_unprivileged_port_start` des Hosts.
+
+Die kubectl-Version steht im Dockerfile als `KUBECTL_VERSION` und lässt sich mit `--build-arg KUBECTL_VERSION=v1.xx.y` überschreiben.
+
 ## Entwicklung
 
 ```bash
