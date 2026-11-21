@@ -55,7 +55,11 @@ Das Image enthält `kubectl` aus `registry.k8s.io/kubectl`, aber kein `oc`. Die 
 ```bash
 docker build --build-arg REVISION=$(git rev-parse HEAD) -t localports .
 docker run --rm -it --init --network host --read-only --tmpfs /tmp \
-  -v ~/.kube/config:/kube/config:ro localports -n app
+  -v ~/.kube/config:/kube/config:ro localports
+
+# online image
+docker run --rm -it --init --network host --read-only --tmpfs /tmp \
+  -v ~/.kube/config:/kube/config:ro wlanboy/localports
 ```
 
 - `--network host` ist nötig, weil die lokalen Ports erst zur Laufzeit feststehen und sich nicht vorab mit `-p` freigeben lassen. Das funktioniert nur unter Linux.
