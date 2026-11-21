@@ -1,0 +1,41 @@
+name: Docker build and publish image
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      IMAGE: wlanboy/localports
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Build the Docker image
+        # Tag v1.2.3 -> Image-Tag 1.2.3, dazu immer latest
+        env:
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          tags=(-t "$IMAGE:latest")
+          if [ "$REF_TYPE" = "tag" ]; then
+            tags+=(-t "$IMAGE:${REF_NAME#v}")
+          fi
+          docker build --build-arg REVISION="$GITHUB_SHA" "${tags[@]}" .
+
+      - name: Docker Push
+        run: docker push --all-tags "$IMAGE"
